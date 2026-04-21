@@ -3,7 +3,7 @@
 ## What you're building
 A Slack bot that:
 1. Answers engineers' questions about feature specs (sourced from Confluence)
-2. Turns brainstorm transcripts into structured proposals, then publishes them to Confluence
+2. Runs live brainstorm sessions in Slack threads or Google Meet calls, writing proposals to Confluence in real time
 
 ---
 
@@ -23,6 +23,12 @@ A Slack bot that:
 5. Your `CONFLUENCE_EMAIL` is the email you log into Atlassian with
 6. Your `CONFLUENCE_SPACE_KEY`: Go to your specs space in Confluence → look at the URL, it'll say `/spaces/ENG` or similar — that's your space key
 
+### Recall.ai
+1. Go to https://www.recall.ai and create an account
+2. From the dashboard, copy your **API Key** — this is your `RECALL_API_KEY`
+3. Note your region (e.g. `us-east-1`) — this is your `RECALL_REGION`
+4. Your `RECALL_WEBHOOK_URL` will be `https://YOUR_DOMAIN/recall/webhook` — you'll fill in the domain after Step 2
+
 ---
 
 ## Step 2 — Deploy to Railway
@@ -36,6 +42,8 @@ Railway gives you a free tier and a public URL without needing to manage servers
 5. Go to **Variables** in your Railway project and add all values from `.env.example`
 
 > 💡 Your `PORT` variable is set automatically by Railway — you don't need to add it.
+
+> 💡 Now that you have your Railway URL, go back and set `RECALL_WEBHOOK_URL` to `https://specbot-production.up.railway.app/recall/webhook`
 
 ---
 
@@ -56,33 +64,34 @@ Add both to Railway Variables.
 
 ---
 
-## Step 4 — Set up the brainstorm channel
-
-1. Create a Slack channel called `#feature-brainstorm` (or whatever you like)
-2. Invite SpecBot to it: `/invite @SpecBot`
-3. Get the channel ID: Right-click the channel → **View channel details** → scroll to the bottom — it shows the Channel ID (starts with `C`)
-4. Add this as `BRAINSTORM_CHANNEL_ID` in Railway Variables
-
----
-
-## Step 5 — Test it
+## Step 4 — Test it
 
 ### Test Spec Q&A
 In any Slack channel where SpecBot is invited:
 ```
 /specbot What is the authentication flow for the login feature?
 ```
-Or mention it:
+Or mention it directly:
 ```
 @SpecBot What does the spec say about error handling?
 ```
 
-### Test Brainstorm → Proposal
-Go to your brainstorm channel and paste:
+### Test Slack thread brainstorm
+In any channel:
 ```
-TRANSCRIPT: [paste your Google Meet transcript here]
+/specbot brainstorm
 ```
-SpecBot will reply with a draft proposal and buttons to publish or revise.
+SpecBot will start a thread and create a live Confluence draft. Reply in the thread as if you're talking through the feature. The proposal updates every 60 seconds. When done:
+```
+/specbot done
+```
+
+### Test live call brainstorm
+In any channel:
+```
+/specbot live https://meet.google.com/abc-defg-hij
+```
+SpecBot joins the call via Recall.ai and writes the proposal live as the conversation happens. It finalises automatically when the call ends.
 
 ---
 
@@ -92,9 +101,10 @@ SpecBot will reply with a draft proposal and buttons to publish or revise.
 |---|---|
 | Engineer has a spec question | `/specbot [question]` in any channel |
 | @-mention mid-conversation | `@SpecBot [question]` in a thread |
-| After a brainstorm call | Download Meet transcript → paste into `#feature-brainstorm` with `TRANSCRIPT:` prefix |
-| Approve proposal | Click **Publish to Confluence** button |
-| Want changes | Click **Revise** and reply in the thread |
+| Start a Slack brainstorm | `/specbot brainstorm` → talk in the thread → `done` when finished |
+| Start a live call brainstorm | `/specbot live [meeting URL]` before or during the call |
+| Force a proposal refresh mid-session | Reply `update` in the brainstorm thread |
+| End a session early | Reply `done` in the thread or `/specbot done` |
 
 ---
 
@@ -104,10 +114,11 @@ SpecBot will reply with a draft proposal and buttons to publish or revise.
 |---|---|
 | Railway | Free tier (500 hours/month) or $5/month Pro |
 | Anthropic API | ~$0.01–0.05 per question at this scale |
+| Recall.ai | ~$0.15/hour of call time |
 | Slack | Free (uses existing workspace) |
 | Confluence | Free (uses existing licence) |
 
-**Realistic monthly cost for a team of <10: under £10.**
+**Realistic monthly cost for a team of <10: under £15.**
 
 ---
 
@@ -124,6 +135,10 @@ SpecBot will reply with a draft proposal and buttons to publish or revise.
 **Proposal not publishing to Confluence**
 - Check `CONFLUENCE_BASE_URL` ends with `/wiki` (not just the domain)
 - Verify the API token has page creation permissions
+
+**SpecBot doesn't join the call**
+- Verify `RECALL_API_KEY` and `RECALL_REGION` are set correctly
+- Make sure `RECALL_WEBHOOK_URL` points to your live Railway URL (not localhost)
 
 **Railway deployment failing**
 - Check the build logs

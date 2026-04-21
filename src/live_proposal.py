@@ -1,8 +1,8 @@
 import threading
 import time
 from dataclasses import dataclass, field
-from claude_client import ClaudeClient
-from confluence_client import ConfluenceClient
+from .claude_client import ClaudeClient
+from .confluence_client import ConfluenceClient
 
 
 # ── How often to regenerate the proposal (seconds) ───────────────────────────

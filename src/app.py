@@ -5,12 +5,12 @@ import json
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from confluence_client import ConfluenceClient
-from claude_client import ClaudeClient
-from recall_client import RecallClient
-from live_proposal import LiveProposalManager
-from activity_logger import ActivityLogger
-from security import (
+from .confluence_client import ConfluenceClient
+from .claude_client import ClaudeClient
+from .recall_client import RecallClient
+from .live_proposal import LiveProposalManager
+from .activity_logger import ActivityLogger
+from .security import (
     verify_slack_signature,
     verify_recall_signature,
     verify_confluence_signature,

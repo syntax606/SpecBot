@@ -104,7 +104,7 @@ def slash_command():
     user = data.get("user_id")
     thread_ts = data.get("thread_ts") or None
 
-    # /specbot live <meeting_url>  — Option A: join call via Recall
+    # /specbot live <meeting_url>
     if text.lower().startswith("live "):
         meeting_url = text[5:].strip()
         if not meeting_url.startswith("http"):
@@ -122,7 +122,7 @@ def slash_command():
         threading.Thread(target=start_call_session).start()
         return jsonify({"response_type": "in_channel", "text": f"<@{user}> SpecBot is joining the call and will write your proposal live..."})
 
-    # /specbot brainstorm  — Option C: live Slack thread session
+    # /specbot brainstorm
     if text.lower() == "brainstorm":
         def start_thread_session():
             user_name = resolve_user_name(user)
@@ -144,7 +144,7 @@ def slash_command():
         threading.Thread(target=start_thread_session).start()
         return jsonify({"response_type": "in_channel", "text": f"<@{user}> Starting brainstorm thread..."})
 
-    # /specbot done  — end active session
+    # /specbot done
     if text.lower() == "done":
         session = next((s for s in live_manager._sessions.values() if s.channel_id == channel), None)
         if not session:
@@ -168,8 +168,8 @@ def slash_command():
             "text": (
                 "*SpecBot commands:*\n"
                 "• `/specbot <question>` — ask about a spec\n"
-                "• `/specbot brainstorm` — start a live Slack thread brainstorm (Option C)\n"
-                "• `/specbot live <meeting URL>` — join a call and write proposal live (Option A)\n"
+                "• `/specbot brainstorm` — start a live Slack thread brainstorm\n"
+                "• `/specbot live <meeting URL>` — join a call and write proposal live\n"
                 "• `/specbot done` — end the active brainstorm session"
             )
         })
@@ -206,10 +206,10 @@ def events():
             user_id = event.get("user", "")
             threading.Thread(target=handle_spec_question, args=(question, channel, thread_ts, user_id, resolve_user_name(user_id))).start()
 
-    # Thread replies — feed into active brainstorm session (Option C)
+    # Thread replies — feed into active brainstorm session
     if event_type == "message" and not event.get("bot_id") and not event.get("subtype"):
         text = event.get("text", "").strip()
-        thread_ts = event.get("thread_ts")  # only present if message is a thread reply
+        thread_ts = event.get("thread_ts")
         channel = event.get("channel")
         user = event.get("user", "Someone")
 
@@ -239,14 +239,10 @@ def events():
     return jsonify({"ok": True})
 
 
-# ── Confluence Webhook (direct spec edits) ───────────────────────────────────
+# ── Confluence Webhook (direct spec edits) ────────────────────────────────────
 
 @app.route("/confluence/webhook", methods=["POST"])
 def confluence_webhook():
-    """
-    Confluence sends webhooks on page events.
-    Set this up in Confluence → Space Settings → Webhooks → page_updated.
-    """
     if rate_limited():
         return jsonify({"error": "Rate limit exceeded"}), 429
     if not verify_confluence_signature(request):
@@ -262,7 +258,6 @@ def confluence_webhook():
         editor = payload.get("updateAuthor", {})
         editor_name = editor.get("displayName") or editor.get("name", "Unknown")
 
-        # Only log pages in our spec space
         space_key = page.get("space", {}).get("key", "")
         if space_key == os.environ.get("CONFLUENCE_SPACE_KEY", ""):
             threading.Thread(
@@ -277,7 +272,6 @@ def confluence_webhook():
 
 @app.route("/recall/webhook", methods=["POST"])
 def recall_webhook():
-    """Recall streams transcript chunks here in real time during the call."""
     if rate_limited():
         return jsonify({"error": "Rate limit exceeded"}), 429
     if not verify_recall_signature(request):
@@ -285,7 +279,6 @@ def recall_webhook():
 
     payload = request.json or {}
 
-    # Real-time transcript chunk
     chunk = recall.parse_transcript_chunk(payload)
     if chunk:
         session_id = chunk["session_id"]
@@ -293,7 +286,6 @@ def recall_webhook():
         if session and session.active:
             live_manager.add_utterance(session_id, chunk["speaker"], chunk["text"])
 
-    # Call ended — auto-finalise
     if payload.get("event") == "bot.status_change":
         status_code = payload.get("data", {}).get("status", {}).get("code", "")
         if status_code in ("call_ended", "done"):

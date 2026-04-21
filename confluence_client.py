@@ -63,9 +63,19 @@ class ConfluenceClient:
     def page_url(self, page_id: str) -> str:
         return f"{self.base_url}/pages/{page_id}"
 
+    def get_page_raw_html(self, page_id: str) -> str:
+        """Fetch the raw Confluence storage HTML for a page (for log appending)."""
+        resp = requests.get(
+            f"{self.base_url}/rest/api/content/{page_id}",
+            params={"expand": "body.storage"},
+            auth=self.auth,
+            headers=self.headers,
+        )
+        resp.raise_for_status()
+        return resp.json()["body"]["storage"]["value"]
+
     def create_draft_page(self, title: str, content: str, space_key: str) -> str:
         """Create a new Confluence page in draft state and return its URL."""
-        # Convert markdown-ish proposal to basic Confluence storage format
         html_content = self._markdown_to_confluence(content)
 
         payload = {
@@ -91,17 +101,6 @@ class ConfluenceClient:
         page_id = resp.json()["id"]
         return self.page_url(page_id)
 
-    def get_page_raw_html(self, page_id: str) -> str:
-        """Fetch the raw Confluence storage HTML for a page (for log appending)."""
-        resp = requests.get(
-            f"{self.base_url}/rest/api/content/{page_id}",
-            params={"expand": "body.storage"},
-            auth=self.auth,
-            headers=self.headers,
-        )
-        resp.raise_for_status()
-        return resp.json()["body"]["storage"]["value"]
-
     def publish_page(self, page_id: str) -> None:
         """Change a draft page to published status."""
         resp = requests.get(
@@ -126,7 +125,6 @@ class ConfluenceClient:
 
     def update_page(self, page_id: str, title: str, content: str, raw_html: bool = False) -> str:
         """Update an existing Confluence page with new content."""
-        # First get current version number (required by Confluence API)
         resp = requests.get(
             f"{self.base_url}/rest/api/content/{page_id}",
             params={"expand": "version"},

@@ -159,4 +159,3 @@ See [SETUP.md](SETUP.md) for the full step-by-step guide covering API keys, Rail
 - Spec content is sent to the Anthropic API to generate answers. Anthropic's paid API plans include a zero data retention policy — inputs are not stored or used for training.
 - Recall.ai receives meeting audio to produce transcripts. Review their [data processing terms](https://www.recall.ai) if this is a concern for your organisation.
 - The bot answers spec questions strictly from Confluence content. If a spec doesn't cover a question, it says so explicitly rather than guessing.
-# SpecBot

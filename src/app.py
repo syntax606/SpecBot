@@ -2,6 +2,8 @@ import os
 import time
 import threading
 import json
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError

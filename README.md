@@ -57,17 +57,21 @@ Activity Logger
 ### File structure
 
 ```
-specbot/
+SpecBot/
 ├── src/
+│   ├── __init__.py
 │   ├── app.py                # Flask app — all Slack and webhook routes
 │   ├── claude_client.py      # Claude API — spec Q&A and proposal prompts
 │   ├── confluence_client.py  # Confluence REST API — search, read, write, update
 │   ├── recall_client.py      # Recall.ai REST API — bot lifecycle and webhook parsing
 │   ├── live_proposal.py      # Live session manager — buffers transcript, drives updates
-│   └── activity_logger.py   # Master audit log — appends to Confluence log page
+│   ├── activity_logger.py    # Master audit log — appends to Confluence log page
+│   └── security.py           # Webhook signature verification and rate limiting
 ├── config/
 │   └── slack_manifest.yaml   # Paste into Slack to create the app
 ├── .env.example              # All required environment variables
+├── .gitignore
+├── CLAUDE.md
 ├── requirements.txt
 ├── railway.toml              # Railway deployment config
 ├── SETUP.md                  # Step-by-step setup guide
@@ -113,7 +117,7 @@ Spec edits require a Confluence webhook to be configured — see SETUP.md.
 | AI | Claude Sonnet (Anthropic API) |
 | Live call transcription | Recall.ai |
 | Spec storage | Confluence (Atlassian REST API) |
-| Slack integration | Slack Bolt / slack-sdk |
+| Slack integration | slack-sdk |
 | Hosting | Railway |
 
 ---
@@ -132,6 +136,9 @@ Spec edits require a Confluence webhook to be configured — see SETUP.md.
 | `RECALL_API_KEY` | API key from recall.ai dashboard |
 | `RECALL_REGION` | Your Recall region, e.g. `us-east-1` |
 | `RECALL_WEBHOOK_URL` | `https://YOUR_DOMAIN/recall/webhook` |
+| `CONFLUENCE_GOLD_STANDARD_PAGE_ID` | Optional — ID of your best spec page, used as a formatting template for proposals |
+| `CONFLUENCE_WEBHOOK_SECRET` | Optional — shared secret to verify Confluence webhook requests |
+| `RECALL_WEBHOOK_SECRET` | Optional — shared secret to verify Recall.ai webhook requests |
 
 ---
 
@@ -139,7 +146,7 @@ Spec edits require a Confluence webhook to be configured — see SETUP.md.
 
 | Service | Cost |
 |---|---|
-| Railway | Free tier / $5/month Pro |
+| Railway | Free tier / ~£4/month Pro |
 | Anthropic API | ~£0.01–0.05 per session at this scale |
 | Recall.ai | ~£0.52/hour of call time |
 | Slack + Confluence | Existing plan — no extra cost |

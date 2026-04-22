@@ -1,20 +1,8 @@
-"""
-live_proposal.py
-
-Manages live brainstorm sessions — both call-based (via Recall.ai) and
-Slack-thread-based (Option C). Each session accumulates transcript chunks,
-periodically calls Claude to regenerate the proposal draft, and updates
-a Confluence page live.
-
-Session lifecycle:
-  start_session()  →  add_utterance() × N  →  end_session()
-"""
-
 import threading
 import time
 from dataclasses import dataclass, field
-from claude_client import ClaudeClient
-from confluence_client import ConfluenceClient
+from .claude_client import ClaudeClient
+from .confluence_client import ConfluenceClient
 
 
 # ── How often to regenerate the proposal (seconds) ───────────────────────────
@@ -70,7 +58,7 @@ class LiveProposalManager:
         import os
         space_key = os.environ.get("CONFLUENCE_SPACE_KEY", "")
         page_url = self.confluence.create_draft_page(
-            title=f"🔴 LIVE — Feature Brainstorm (updating...)",
+            title="🔴 LIVE — Feature Brainstorm (updating...)",
             content="*This proposal is being written live. Check back soon.*",
             space_key=space_key,
         )
@@ -118,7 +106,6 @@ class LiveProposalManager:
             thread_ts=session_id,
         )
 
-        # Log the completed brainstorm session
         if self.logger:
             threading.Thread(
                 target=self.logger.log_brainstorm,
@@ -160,10 +147,8 @@ class LiveProposalManager:
             session.word_count_at_last_update = word_count
             session.last_updated_at = time.time()
 
-        # Generate updated proposal
         proposal = self.claude.draft_proposal(transcript, format_example=session.format_example)
 
-        # Update Confluence page
         title = "Feature Proposal (Draft)" if final else "🔴 LIVE — Feature Brainstorm (updating...)"
         self.confluence.update_page(
             page_id=session.confluence_page_id,
@@ -171,7 +156,6 @@ class LiveProposalManager:
             content=proposal,
         )
 
-        # Post a brief Slack update (don't flood the thread)
         if final:
             return  # end_session() handles the final message
         self.post_message(

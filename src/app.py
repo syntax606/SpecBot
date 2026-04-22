@@ -1,16 +1,23 @@
 import os
-import hmac
-import hashlib
 import time
 import threading
 import json
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from confluence_client import ConfluenceClient
-from claude_client import ClaudeClient
-from recall_client import RecallClient
-from live_proposal import LiveProposalManager
+from .confluence_client import ConfluenceClient
+from .claude_client import ClaudeClient
+from .recall_client import RecallClient
+from .live_proposal import LiveProposalManager
+from .activity_logger import ActivityLogger
+from .security import (
+    verify_slack_signature,
+    verify_recall_signature,
+    verify_confluence_signature,
+    check_rate_limit,
+)
 
 app = Flask(__name__)
 
@@ -18,8 +25,6 @@ slack_client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
 confluence = ConfluenceClient()
 claude = ClaudeClient()
 recall = RecallClient()
-
-SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,26 +41,28 @@ def post_message(channel, text, blocks=None, thread_ts=None):
         print(f"Slack error: {e.response['error']}")
 
 
+def resolve_user_name(user_id: str) -> str:
+    try:
+        info = slack_client.users_info(user=user_id)
+        return info["user"]["real_name"]
+    except Exception:
+        return user_id
+
+
 live_manager = LiveProposalManager(slack_client, post_message)
+logger = ActivityLogger()
+live_manager.logger = logger  # inject after both are initialised
 
 
-def verify_slack_signature(req):
-    timestamp = req.headers.get("X-Slack-Request-Timestamp", "")
-    if abs(time.time() - int(timestamp)) > 60 * 5:
-        return False
-    sig_basestring = f"v0:{timestamp}:{req.get_data(as_text=True)}"
-    my_signature = "v0=" + hmac.new(
-        SLACK_SIGNING_SECRET.encode(),
-        sig_basestring.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    slack_signature = req.headers.get("X-Slack-Signature", "")
-    return hmac.compare_digest(my_signature, slack_signature)
+def rate_limited() -> bool:
+    """Returns True (and should reject) if the request IP is over the rate limit."""
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
+    return not check_rate_limit(ip)
 
 
 # ── Spec Q&A ──────────────────────────────────────────────────────────────────
 
-def handle_spec_question(question, channel, thread_ts=None, user=None):
+def handle_spec_question(question, channel, thread_ts=None, user=None, user_name="Unknown"):
     post_message(channel, f"_Searching specs for: {question}..._", thread_ts=thread_ts)
     pages = confluence.search(question, limit=3)
     if not pages:
@@ -77,11 +84,19 @@ def handle_spec_question(question, channel, thread_ts=None, user=None):
     ]
     post_message(channel, answer, blocks=blocks, thread_ts=thread_ts)
 
+    # Log the question asynchronously so it never blocks the response
+    threading.Thread(
+        target=logger.log_question,
+        args=(user_name, user or "", question, pages)
+    ).start()
+
 
 # ── Slash commands ────────────────────────────────────────────────────────────
 
 @app.route("/slack/commands", methods=["POST"])
 def slash_command():
+    if rate_limited():
+        return jsonify({"error": "Rate limit exceeded"}), 429
     if not verify_slack_signature(request):
         return jsonify({"error": "Unauthorized"}), 401
 
@@ -91,7 +106,7 @@ def slash_command():
     user = data.get("user_id")
     thread_ts = data.get("thread_ts") or None
 
-    # /specbot live <meeting_url>  — Option A: join call via Recall
+    # /specbot live <meeting_url>
     if text.lower().startswith("live "):
         meeting_url = text[5:].strip()
         if not meeting_url.startswith("http"):
@@ -99,16 +114,20 @@ def slash_command():
 
         def start_call_session():
             session_id = str(time.time())
+            user_name = resolve_user_name(user)
             session = live_manager.start_session(session_id, channel)
+            session.started_by = user_name
+            session.session_type = "call"
             bot = recall.create_bot(meeting_url, session_id)
             session.bot_id = bot["id"]
 
         threading.Thread(target=start_call_session).start()
         return jsonify({"response_type": "in_channel", "text": f"<@{user}> SpecBot is joining the call and will write your proposal live..."})
 
-    # /specbot brainstorm  — Option C: live Slack thread session
+    # /specbot brainstorm
     if text.lower() == "brainstorm":
         def start_thread_session():
+            user_name = resolve_user_name(user)
             result = slack_client.chat_postMessage(
                 channel=channel,
                 text=(
@@ -120,12 +139,14 @@ def slash_command():
                 )
             )
             session_id = result["ts"]
-            live_manager.start_session(session_id, channel)
+            session = live_manager.start_session(session_id, channel)
+            session.started_by = user_name
+            session.session_type = "thread"
 
         threading.Thread(target=start_thread_session).start()
         return jsonify({"response_type": "in_channel", "text": f"<@{user}> Starting brainstorm thread..."})
 
-    # /specbot done  — end active session
+    # /specbot done
     if text.lower() == "done":
         session = next((s for s in live_manager._sessions.values() if s.channel_id == channel), None)
         if not session:
@@ -149,14 +170,14 @@ def slash_command():
             "text": (
                 "*SpecBot commands:*\n"
                 "• `/specbot <question>` — ask about a spec\n"
-                "• `/specbot brainstorm` — start a live Slack thread brainstorm (Option C)\n"
-                "• `/specbot live <meeting URL>` — join a call and write proposal live (Option A)\n"
+                "• `/specbot brainstorm` — start a live Slack thread brainstorm\n"
+                "• `/specbot live <meeting URL>` — join a call and write proposal live\n"
                 "• `/specbot done` — end the active brainstorm session"
             )
         })
 
     # Default: spec Q&A
-    threading.Thread(target=handle_spec_question, args=(text, channel, thread_ts, user)).start()
+    threading.Thread(target=handle_spec_question, args=(text, channel, thread_ts, user, resolve_user_name(user))).start()
     return jsonify({"response_type": "in_channel", "text": f"<@{user}> asked: _{text}_"})
 
 
@@ -164,6 +185,8 @@ def slash_command():
 
 @app.route("/slack/events", methods=["POST"])
 def events():
+    if rate_limited():
+        return jsonify({"error": "Rate limit exceeded"}), 429
     if not verify_slack_signature(request):
         return jsonify({"error": "Unauthorized"}), 401
 
@@ -182,12 +205,13 @@ def events():
         channel = event.get("channel")
         thread_ts = event.get("thread_ts") or event.get("ts")
         if question:
-            threading.Thread(target=handle_spec_question, args=(question, channel, thread_ts)).start()
+            user_id = event.get("user", "")
+            threading.Thread(target=handle_spec_question, args=(question, channel, thread_ts, user_id, resolve_user_name(user_id))).start()
 
-    # Thread replies — feed into active brainstorm session (Option C)
+    # Thread replies — feed into active brainstorm session
     if event_type == "message" and not event.get("bot_id") and not event.get("subtype"):
         text = event.get("text", "").strip()
-        thread_ts = event.get("thread_ts")  # only present if message is a thread reply
+        thread_ts = event.get("thread_ts")
         channel = event.get("channel")
         user = event.get("user", "Someone")
 
@@ -217,14 +241,46 @@ def events():
     return jsonify({"ok": True})
 
 
+# ── Confluence Webhook (direct spec edits) ────────────────────────────────────
+
+@app.route("/confluence/webhook", methods=["POST"])
+def confluence_webhook():
+    if rate_limited():
+        return jsonify({"error": "Rate limit exceeded"}), 429
+    if not verify_confluence_signature(request):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    payload = request.json or {}
+    event = payload.get("event", "")
+
+    if event == "page_updated":
+        page = payload.get("page", {})
+        page_id = str(page.get("id", ""))
+        page_title = page.get("title", "Unknown page")
+        editor = payload.get("updateAuthor", {})
+        editor_name = editor.get("displayName") or editor.get("name", "Unknown")
+
+        space_key = page.get("space", {}).get("key", "")
+        if space_key == os.environ.get("CONFLUENCE_SPACE_KEY", ""):
+            threading.Thread(
+                target=logger.log_spec_edit,
+                args=(page_title, page_id, editor_name)
+            ).start()
+
+    return jsonify({"ok": True})
+
+
 # ── Recall.ai Webhook ─────────────────────────────────────────────────────────
 
 @app.route("/recall/webhook", methods=["POST"])
 def recall_webhook():
-    """Recall streams transcript chunks here in real time during the call."""
+    if rate_limited():
+        return jsonify({"error": "Rate limit exceeded"}), 429
+    if not verify_recall_signature(request):
+        return jsonify({"error": "Unauthorized"}), 401
+
     payload = request.json or {}
 
-    # Real-time transcript chunk
     chunk = recall.parse_transcript_chunk(payload)
     if chunk:
         session_id = chunk["session_id"]
@@ -232,7 +288,6 @@ def recall_webhook():
         if session and session.active:
             live_manager.add_utterance(session_id, chunk["speaker"], chunk["text"])
 
-    # Call ended — auto-finalise
     if payload.get("event") == "bot.status_change":
         status_code = payload.get("data", {}).get("status", {}).get("code", "")
         if status_code in ("call_ended", "done"):
@@ -248,6 +303,8 @@ def recall_webhook():
 
 @app.route("/slack/interactions", methods=["POST"])
 def interactions():
+    if rate_limited():
+        return jsonify({"error": "Rate limit exceeded"}), 429
     if not verify_slack_signature(request):
         return jsonify({"error": "Unauthorized"}), 401
 

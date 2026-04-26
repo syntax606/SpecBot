@@ -15,7 +15,7 @@ Log page format (Confluence storage):
 import os
 import threading
 from datetime import datetime, timezone
-from .confluence_client import ConfluenceClient
+from confluence_client import ConfluenceClient
 
 
 LOG_PAGE_TITLE = "Spec Activity Log"
@@ -26,7 +26,19 @@ class ActivityLogger:
     def __init__(self):
         self.confluence = ConfluenceClient()
         self._page_id: str = ""
-        self._ensure_log_page()
+        try:
+            self._ensure_log_page()
+        except Exception as e:
+            print(f"ActivityLogger: could not connect to Confluence on startup ({e}). "
+                  f"Will retry on first log event.")
+
+    def _lazy_ensure_log_page(self):
+        """Call before any log write if page_id not yet set."""
+        if not self._page_id:
+            try:
+                self._ensure_log_page()
+            except Exception as e:
+                print(f"ActivityLogger: Confluence still unreachable ({e})")
 
     # ── Public log methods ────────────────────────────────────────────────────
 
@@ -88,6 +100,10 @@ class ActivityLogger:
 
     def _append_row(self, event_type: str, who: str, detail: str, link: str):
         """Thread-safe: prepend a new row to the log table."""
+        self._lazy_ensure_log_page()
+        if not self._page_id:
+            print(f"ActivityLogger: skipping log entry — Confluence page not available")
+            return
         with _lock:
             # Fetch current page body
             current_html = self.confluence.get_page_raw_html(self._page_id)

@@ -135,6 +135,64 @@ Instruction: {instruction}"""
         raw = re.sub(r"\n?```$", "", raw)
         return json.loads(raw)
 
+    def identify_section_changes(self, transcript: str, page_content: str) -> list[dict]:
+        """
+        Analyse a meeting transcript against an existing spec page.
+        Returns list of {"section_heading", "revised_section", "summary"} for each
+        section where the meeting produced a clear decision to update content.
+        Returns [] if nothing actionable was discussed.
+        """
+        system = """You are SpecBot, helping a product team keep their spec pages up to date during live meetings.
+
+You will be given:
+1. The current spec page content
+2. A live meeting transcript where the team may be discussing changes to the spec
+
+Your job is to identify sections where the team reached a CLEAR DECISION to change something, then rewrite those sections.
+
+Your response MUST be a JSON array. Each element represents one section that needs updating:
+[
+  {
+    "section_heading": "Exact heading text as it appears in the spec",
+    "revised_section": "Full revised section in markdown (heading line + body)",
+    "summary": "One sentence: what changed and why"
+  }
+]
+
+If no sections need updating, return an empty array: []
+
+Rules:
+- Only update sections where the team made a concrete decision or stated clear direction.
+- Ignore passing mentions, open questions without answers, and hypothetical discussion.
+- Keep each section heading exactly as it appears in the existing spec.
+- Preserve the writing style and level of detail of the existing spec.
+- revised_section must include the heading line (e.g. "## Key Requirements") followed by the updated body.
+- Respond with the JSON array only — no explanation, no markdown code fences."""
+
+        prompt = f"""Current spec page:
+---
+{page_content}
+---
+
+Meeting transcript so far:
+---
+{transcript}
+---
+
+Return the JSON array of sections to update based on clear decisions made in the meeting."""
+
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=2000,
+            system=system,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = message.content[0].text.strip()
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+        result = json.loads(raw)
+        return result if isinstance(result, list) else []
+
     def answer_spec_question(self, question: str, spec_context: str) -> str:
         """Answer an engineer's question grounded strictly in the spec content."""
         system = """You are SpecBot, an assistant for a software development team.

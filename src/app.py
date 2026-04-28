@@ -189,22 +189,32 @@ def slash_command():
         return jsonify({"response_type": "in_channel", "text": f"<@{user}> Looking up the spec page..."})
 
     # /specbot live <meeting_url>
+    # /specbot live <meeting_url> | <existing page title>
     if text.lower().startswith("live "):
-        meeting_url = text[5:].strip()
+        live_args = text[5:].strip()
+        if "|" in live_args:
+            meeting_url, target_page_title = [p.strip() for p in live_args.split("|", 1)]
+        else:
+            meeting_url, target_page_title = live_args, ""
+
         if not meeting_url.startswith("http"):
-            return jsonify({"response_type": "ephemeral", "text": "Usage: `/specbot live <meeting URL>`"})
+            return jsonify({"response_type": "ephemeral", "text": "Usage: `/specbot live <meeting URL>` or `/specbot live <meeting URL> | <existing page title>`"})
 
         def start_call_session():
             session_id = str(time.time())
             user_name = resolve_user_name(user)
-            session = live_manager.start_session(session_id, channel)
+            session = live_manager.start_session(session_id, channel, target_page_title=target_page_title)
             session.started_by = user_name
             session.session_type = "call"
             bot = recall.create_bot(meeting_url, session_id)
             session.bot_id = bot["id"]
 
         threading.Thread(target=start_call_session).start()
-        return jsonify({"response_type": "in_channel", "text": f"<@{user}> SpecBot is joining the call and will write your proposal live..."})
+        if target_page_title:
+            reply = f"<@{user}> SpecBot is joining the call and will update *{target_page_title}* live..."
+        else:
+            reply = f"<@{user}> SpecBot is joining the call and will write your proposal live..."
+        return jsonify({"response_type": "in_channel", "text": reply})
 
     # /specbot brainstorm
     if text.lower() == "brainstorm":
@@ -255,7 +265,8 @@ def slash_command():
                 "• `/specbot edit <page title> | <instruction>` — edit a spec section\n"
                 "• `/specbot edit <page title> | <section name> | <instruction>` — edit a specific section\n"
                 "• `/specbot brainstorm` — start a live Slack thread brainstorm\n"
-                "• `/specbot live <meeting URL>` — join a call and write proposal live\n"
+                "• `/specbot live <meeting URL>` — join a call and write a new proposal live\n"
+                "• `/specbot live <meeting URL> | <page title>` — join a call and update an existing spec live\n"
                 "• `/specbot done` — end the active brainstorm session"
             )
         })

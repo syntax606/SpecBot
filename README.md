@@ -130,6 +130,8 @@ SpecBot/
 | `done` *(in brainstorm thread)* | Finalise from the thread |
 | `@SpecBot <question>` | Ask a spec question mid-conversation |
 
+**`/specbot` vs `@SpecBot`:** Slash commands (`/specbot`) go directly to the bot — your command isn't visible in the channel, only SpecBot's response is. App mentions (`@SpecBot`) are normal Slack messages that tag the bot, so they're visible to everyone in the thread. Both work for spec Q&A; only slash commands support brainstorm, edit, log, and live sessions. Use `@SpecBot` when you're already mid-conversation in a thread and want to ask a question inline.
+
 ---
 
 ## What gets logged

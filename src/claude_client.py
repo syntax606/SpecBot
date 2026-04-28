@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import anthropic
 
 
@@ -82,6 +84,56 @@ Write the feature proposal."""
             messages=[{"role": "user", "content": prompt}]
         )
         return message.content[0].text
+
+    def draft_section_edit(self, page_content: str, section_name: str, instruction: str) -> dict:
+        """
+        Rewrite a specific section of a spec page based on an instruction.
+        section_name can be "auto" to let Claude choose the most relevant section.
+        Returns {"section_heading": str, "revised_section": str, "summary": str}.
+        """
+        section_directive = (
+            f'The section to edit is: "{section_name}"'
+            if section_name.lower() != "auto"
+            else "Choose the most relevant section to edit based on the instruction."
+        )
+
+        system = """You are SpecBot, helping a product team maintain their Confluence spec pages.
+You will be given a spec page and an instruction to edit one section of it.
+
+Your response MUST be a JSON object with exactly these fields:
+{
+  "section_heading": "The exact heading text of the section you edited",
+  "revised_section": "The full revised content in markdown (heading line + body)",
+  "summary": "One sentence describing what you changed and why"
+}
+
+Rules:
+- Only modify the section specified. Do not alter other sections.
+- Keep the section heading exactly as it appears in the original.
+- Maintain the writing style and format of the surrounding document.
+- Apply the instruction faithfully — do not add unrequested changes.
+- revised_section must include the heading line (e.g. "## Requirements") followed by the new content.
+- Respond with the JSON object only — no markdown code fences, no explanation."""
+
+        prompt = f"""Spec page content:
+---
+{page_content}
+---
+
+{section_directive}
+
+Instruction: {instruction}"""
+
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=1200,
+            system=system,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = message.content[0].text.strip()
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+        return json.loads(raw)
 
     def answer_spec_question(self, question: str, spec_context: str) -> str:
         """Answer an engineer's question grounded strictly in the spec content."""

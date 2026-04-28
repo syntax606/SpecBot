@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import json
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, request, jsonify
@@ -56,6 +57,33 @@ live_manager.logger = logger  # inject after both are initialised
 _pending_edits: dict = {}  # edit_key -> edit state dict
 
 
+def parse_time_range(phrase: str) -> tuple[datetime, datetime]:
+    """Parse natural language time phrases into (since, until) UTC datetimes."""
+    now = datetime.now(timezone.utc)
+    p = phrase.strip().lower()
+
+    if p == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0), now
+    if p == "yesterday":
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return today - timedelta(days=1), today
+    if p in ("last week", "this week"):
+        return now - timedelta(days=7), now
+
+    import re as _re
+    m = _re.match(r"last (\d+) days?", p)
+    if m:
+        return now - timedelta(days=int(m.group(1))), now
+
+    m = _re.match(r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})", p)
+    if m:
+        since = datetime.fromisoformat(m.group(1)).replace(tzinfo=timezone.utc)
+        until = datetime.fromisoformat(m.group(2)).replace(tzinfo=timezone.utc, hour=23, minute=59, second=59)
+        return since, until
+
+    return now - timedelta(days=7), now  # default: last 7 days
+
+
 def rate_limited() -> bool:
     """Returns True (and should reject) if the request IP is over the rate limit."""
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
@@ -63,6 +91,52 @@ def rate_limited() -> bool:
 
 
 # ── Spec Q&A ──────────────────────────────────────────────────────────────────
+
+def handle_spec_changelog(page_query: str, time_phrase: str, channel: str, thread_ts, user_name: str):
+    pages = confluence.search_by_title(page_query, limit=3)
+    if not pages:
+        pages = confluence.search(page_query, limit=3)
+    if not pages:
+        post_message(channel, f"Couldn't find a spec page matching *{page_query}*.", thread_ts=thread_ts)
+        return
+
+    page = pages[0]
+    page_id = page["id"]
+    page_title = page["title"]
+    page_url = confluence.page_url(page_id)
+
+    since, until = parse_time_range(time_phrase)
+
+    post_message(channel, f"_Fetching change history for *{page_title}*..._", thread_ts=thread_ts)
+
+    versions = confluence.get_page_versions(page_id, since, until)
+    if not versions:
+        since_str = since.strftime("%b %d")
+        until_str = until.strftime("%b %d")
+        post_message(channel, f"No changes to <{page_url}|{page_title}> found between {since_str} and {until_str}.", thread_ts=thread_ts)
+        return
+
+    # Compare the version just before the range (or v1) against current
+    oldest_in_range = versions[0]["number"]
+    compare_from = max(1, oldest_in_range - 1)
+    old_content = confluence.get_page_content_at_version(page_id, compare_from)
+    current_content = confluence.get_page_content(page_id)
+
+    summary = claude.summarize_spec_changes(old_content, current_content, page_title, versions)
+
+    since_str = since.strftime("%b %d")
+    until_str = until.strftime("%b %d")
+    date_range = f"{since_str} – {until_str}" if since_str != until_str else since_str
+    editors = ", ".join(sorted({v["by"] for v in versions}))
+    edit_count = len(versions)
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Changelog: <{page_url}|{page_title}>*\n_{date_range} · {edit_count} edit{'s' if edit_count != 1 else ''} · {editors}_"}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
+    ]
+    post_message(channel, f"Changelog for {page_title}", blocks=blocks, thread_ts=thread_ts)
+
 
 def handle_spec_edit(page_query: str, section: str, instruction: str, channel: str, thread_ts, user: str, user_name: str):
     pages = confluence.search_by_title(page_query, limit=3)
@@ -172,6 +246,16 @@ def slash_command():
     user = data.get("user_id")
     thread_ts = data.get("thread_ts") or None
 
+    # /specbot log <page title> | last 7 days
+    if text.lower().startswith("log "):
+        parts = [p.strip() for p in text[4:].split("|", 1)]
+        page_query = parts[0]
+        time_phrase = parts[1] if len(parts) == 2 else "last 7 days"
+        if not page_query:
+            return jsonify({"response_type": "ephemeral", "text": "Usage: `/specbot log <page title> | last 7 days`"})
+        threading.Thread(target=handle_spec_changelog, args=(page_query, time_phrase, channel, thread_ts, resolve_user_name(user))).start()
+        return jsonify({"response_type": "in_channel", "text": f"<@{user}> Checking the changelog..."})
+
     # /specbot edit <page title> | <section> | <instruction>
     # /specbot edit <page title> | <instruction>
     if text.lower().startswith("edit "):
@@ -262,6 +346,7 @@ def slash_command():
             "text": (
                 "*SpecBot commands:*\n"
                 "• `/specbot <question>` — ask about a spec\n"
+                "• `/specbot log <page title> | last 7 days` — show what changed in a spec (supports: today, yesterday, last N days, last week, YYYY-MM-DD to YYYY-MM-DD)\n"
                 "• `/specbot edit <page title> | <instruction>` — edit a spec section\n"
                 "• `/specbot edit <page title> | <section name> | <instruction>` — edit a specific section\n"
                 "• `/specbot brainstorm` — start a live Slack thread brainstorm\n"

@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+from datetime import datetime, timezone
 from requests.auth import HTTPBasicAuth
 
 
@@ -154,6 +155,50 @@ class ConfluenceClient:
         )
         resp.raise_for_status()
         return self.page_url(page_id)
+
+    def get_page_versions(self, page_id: str, since_dt: datetime, until_dt: datetime | None = None) -> list[dict]:
+        """Return page versions within a date range, oldest first."""
+        resp = requests.get(
+            f"{self.base_url}/rest/api/content/{page_id}/version",
+            params={"limit": 200},
+            auth=self.auth,
+            headers=self.headers,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+
+        filtered = []
+        for v in results:
+            when_str = v.get("when", "")
+            try:
+                when = datetime.fromisoformat(when_str.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if when < since_dt:
+                continue
+            if until_dt and when > until_dt:
+                continue
+            filtered.append({
+                "number": v["number"],
+                "by": v.get("by", {}).get("displayName", "Unknown"),
+                "when": when,
+                "message": v.get("message", ""),
+            })
+        return filtered
+
+    def get_page_content_at_version(self, page_id: str, version_number: int) -> str:
+        """Fetch and clean the text content of a page at a specific version number."""
+        resp = requests.get(
+            f"{self.base_url}/rest/api/content/{page_id}/version/{version_number}",
+            params={"expand": "content.body.storage"},
+            auth=self.auth,
+            headers=self.headers,
+        )
+        resp.raise_for_status()
+        html = resp.json()["content"]["body"]["storage"]["value"]
+        text = re.sub(r"<[^>]+>", " ", html)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:8000]
 
     def search_by_title(self, title: str, limit: int = 5) -> list[dict]:
         """Search Confluence pages by title — exact match first, then contains."""

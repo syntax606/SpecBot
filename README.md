@@ -1,6 +1,6 @@
 # SpecBot
 
-A Slack bot that answers engineer questions from your Confluence specs, runs live AI-assisted brainstorm sessions, and logs all spec activity to a master audit trail.
+A Slack bot that answers engineer questions from your Confluence specs, runs live AI-assisted brainstorm sessions, edits existing spec pages section by section, and logs all spec activity to a master audit trail.
 
 Built with Claude (Anthropic), Recall.ai, Confluence, and Slack. Deployable on Railway in under an hour.
 
@@ -30,7 +30,29 @@ SpecBot joins your Google Meet via Recall.ai, listens to the conversation in rea
 /specbot live https://meet.google.com/abc-defg-hij
 ```
 
-### 4. Spec activity log
+### 4. Live spec update (Google Meet)
+Point SpecBot at an existing spec page when joining a call. Instead of creating a new proposal, it monitors the conversation and patches only the sections where the team makes a concrete decision — directly updating the live spec page every 60 seconds.
+
+```
+/specbot live https://meet.google.com/abc-defg-hij | Payments v2 Spec
+```
+
+SpecBot will tell you in Slack exactly which sections it changed and why, e.g.:
+> 📝 Spec patched — Payments v2 Spec
+> • *Key Requirements*: Added PCI-DSS compliance requirement following Alice's confirmation
+> • *Out of Scope*: Removed 3DS2 after team agreed to defer it
+
+### 5. Section-specific spec editing
+Edit a specific section of any existing Confluence spec page directly from Slack. Claude drafts the change and shows you a preview first — you approve, revise with new instructions, or discard before anything touches Confluence.
+
+```
+/specbot edit Payments v2 Spec | Key Requirements | Add a requirement for idempotent payment retries
+/specbot edit Payments v2 Spec | Remove all references to the legacy API
+```
+
+Omitting the section name lets Claude decide which section the instruction most naturally applies to.
+
+### 6. Spec activity log
 Every spec-related action is recorded to a master "Spec Activity Log" Confluence page — who asked what, who ran a brainstorm, who edited a spec page directly, and when. Newest entries appear first.
 
 ---
@@ -85,9 +107,12 @@ SpecBot/
 | Command | Description |
 |---|---|
 | `/specbot <question>` | Answer a question from the spec |
+| `/specbot edit <page> \| <instruction>` | Edit the most relevant section of a spec page |
+| `/specbot edit <page> \| <section> \| <instruction>` | Edit a specific named section |
 | `/specbot brainstorm` | Start a live Slack thread brainstorm session |
-| `/specbot live <url>` | Join a Google Meet and write the proposal live |
-| `/specbot done` | End the active brainstorm session and finalise |
+| `/specbot live <url>` | Join a Google Meet and write a new proposal live |
+| `/specbot live <url> \| <page title>` | Join a Google Meet and update an existing spec live |
+| `/specbot done` | End the active brainstorm or update session |
 | `/specbot` | Show help |
 | `update` *(in brainstorm thread)* | Force an immediate proposal refresh |
 | `done` *(in brainstorm thread)* | Finalise from the thread |
@@ -103,9 +128,9 @@ The Spec Activity Log Confluence page records:
 |---|---|---|
 | ❓ Spec Question | Any `/specbot` or `@SpecBot` query | User name, question text, specs searched |
 | 🧠 Brainstorm | Session ends via `done` | Who started it, mode (call/thread), link to proposal |
-| ✏️ Spec Edit | Direct edit to any page in the spec space | Editor name, page title, link |
+| ✏️ Spec Edit | `/specbot edit` approval, live update session ending, or direct Confluence page edit | Editor name, page title, link |
 
-Spec edits require a Confluence webhook to be configured — see SETUP.md.
+Direct Confluence spec edits require a Confluence webhook to be configured — see SETUP.md. Edits made via SpecBot are logged automatically without a webhook.
 
 ---
 

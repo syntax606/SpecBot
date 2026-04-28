@@ -135,6 +135,55 @@ Instruction: {instruction}"""
         raw = re.sub(r"\n?```$", "", raw)
         return json.loads(raw)
 
+    def summarize_spec_changes(self, old_content: str, new_content: str, page_title: str, versions: list[dict]) -> str:
+        """
+        Produce a human-readable Slack-formatted changelog by comparing two snapshots
+        of a spec page, enriched with the edit history for the period.
+        """
+        version_lines = []
+        for v in versions:
+            when = v["when"]
+            when_str = when.strftime("%b %d %H:%M UTC") if hasattr(when, "strftime") else str(when)
+            note = f' — "{v["message"]}"' if v.get("message") else ""
+            version_lines.append(f"- {when_str}: edited by {v['by']}{note}")
+        version_history = "\n".join(version_lines) if version_lines else "No edit messages recorded."
+
+        system = """You are SpecBot, summarising what changed in a product spec over a given period.
+
+You will be given two snapshots of the same spec page — the version before the period started and the current version — plus a list of who made edits and when.
+
+Write a concise Slack-formatted changelog. Focus on:
+- Which sections changed and what the meaningful difference is
+- New requirements added, items removed, or decisions reversed
+- Do NOT mention formatting-only changes, whitespace, or trivial typo fixes
+
+Format as a bullet list, one bullet per meaningful change:
+• *Section name*: what changed
+
+If the content is identical or only trivially different, say so plainly.
+Keep the total response under 800 characters."""
+
+        prompt = f"""Spec page: {page_title}
+
+Edit history for this period:
+{version_history}
+
+--- VERSION BEFORE THIS PERIOD ---
+{old_content}
+
+--- CURRENT VERSION ---
+{new_content}
+
+Summarise the meaningful changes."""
+
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=600,
+            system=system,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return message.content[0].text
+
     def identify_section_changes(self, transcript: str, page_content: str) -> list[dict]:
         """
         Analyse a meeting transcript against an existing spec page.

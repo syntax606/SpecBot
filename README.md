@@ -1,6 +1,6 @@
 # SpecBot
 
-A Slack bot that answers engineer questions from your Confluence specs, runs live AI-assisted brainstorm sessions, edits existing spec pages section by section, and logs all spec activity to a master audit trail.
+A Slack bot that answers engineer questions from your Confluence specs, runs live AI-assisted brainstorm sessions, edits existing spec pages section by section, shows a changelog of what changed in a spec over any time period, and logs all spec activity to a master audit trail.
 
 Built with Claude (Anthropic), Recall.ai, Confluence, and Slack. Deployable on Railway in under an hour.
 
@@ -52,7 +52,18 @@ Edit a specific section of any existing Confluence spec page directly from Slack
 
 Omitting the section name lets Claude decide which section the instruction most naturally applies to.
 
-### 6. Spec activity log
+### 6. Spec changelog
+Ask SpecBot what changed in any spec page over a given time period. It pulls the Confluence version history, compares the page before and after the period, and returns a human-readable section-by-section summary as a Slack post.
+
+```
+/specbot log Payments v2 Spec | last 7 days
+/specbot log Payments v2 Spec | today
+/specbot log Payments v2 Spec | 2026-04-01 to 2026-04-28
+```
+
+Supported time phrases: `today`, `yesterday`, `last N days`, `last week`, `this week`, or an explicit ISO date range.
+
+### 7. Spec activity log
 Every spec-related action is recorded to a master "Spec Activity Log" Confluence page — who asked what, who ran a brainstorm, who edited a spec page directly, and when. Newest entries appear first.
 
 ---
@@ -107,6 +118,7 @@ SpecBot/
 | Command | Description |
 |---|---|
 | `/specbot <question>` | Answer a question from the spec |
+| `/specbot log <page> \| <time range>` | Show what changed in a spec over a time period |
 | `/specbot edit <page> \| <instruction>` | Edit the most relevant section of a spec page |
 | `/specbot edit <page> \| <section> \| <instruction>` | Edit a specific named section |
 | `/specbot brainstorm` | Start a live Slack thread brainstorm session |

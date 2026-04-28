@@ -53,6 +53,8 @@ live_manager = LiveProposalManager(slack_client, post_message)
 logger = ActivityLogger()
 live_manager.logger = logger  # inject after both are initialised
 
+_pending_edits: dict = {}  # edit_key -> edit state dict
+
 
 def rate_limited() -> bool:
     """Returns True (and should reject) if the request IP is over the rate limit."""
@@ -61,6 +63,70 @@ def rate_limited() -> bool:
 
 
 # ── Spec Q&A ──────────────────────────────────────────────────────────────────
+
+def handle_spec_edit(page_query: str, section: str, instruction: str, channel: str, thread_ts, user: str, user_name: str):
+    pages = confluence.search_by_title(page_query, limit=3)
+    if not pages:
+        pages = confluence.search(page_query, limit=3)
+    if not pages:
+        post_message(channel, f"Couldn't find a spec page matching *{page_query}*. Try a more specific title.", thread_ts=thread_ts)
+        return
+
+    page = pages[0]
+    page_id = page["id"]
+    page_title = page["title"]
+    page_content = confluence.get_page_content(page_id)
+    raw_html = confluence.get_page_raw_html(page_id)
+
+    post_message(channel, f"_Found *{page_title}*. Drafting edit..._", thread_ts=thread_ts)
+
+    try:
+        result = claude.draft_section_edit(page_content, section, instruction)
+    except Exception as e:
+        post_message(channel, f"Couldn't draft the edit: {e}", thread_ts=thread_ts)
+        return
+
+    section_heading = result.get("section_heading", "")
+    revised_section = result.get("revised_section", "")
+    summary = result.get("summary", "")
+
+    section_data = confluence.extract_section(raw_html, section_heading)
+    if not section_data:
+        post_message(channel, f"Couldn't locate the *{section_heading}* section in the page. Try specifying the section name more precisely.", thread_ts=thread_ts)
+        return
+
+    new_section_html = confluence._markdown_to_confluence(revised_section)
+    edit_key = f"{channel}:{user}:{int(time.time())}"
+    _pending_edits[edit_key] = {
+        "page_id": page_id,
+        "page_title": page_title,
+        "page_url": confluence.page_url(page_id),
+        "section_heading": section_heading,
+        "old_html": section_data["full_html"],
+        "new_html": new_section_html,
+        "original_instruction": instruction,
+        "page_content": page_content,
+        "section": section,
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "user": user,
+        "user_name": user_name,
+        "awaiting_revision": False,
+        "revision_thread_ts": None,
+    }
+
+    preview = revised_section[:600] + ("..." if len(revised_section) > 600 else "")
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Proposed edit to `{section_heading}` in <{confluence.page_url(page_id)}|{page_title}>*\n_{summary}_"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"```{preview}```"}},
+        {"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "✅ Approve"}, "style": "primary", "action_id": "approve_edit", "value": edit_key},
+            {"type": "button", "text": {"type": "plain_text", "text": "✏️ Revise"}, "action_id": "revise_edit", "value": edit_key},
+            {"type": "button", "text": {"type": "plain_text", "text": "🗑️ Discard"}, "style": "danger", "action_id": "discard_edit", "value": edit_key},
+        ]},
+    ]
+    post_message(channel, f"Proposed edit to {page_title}", blocks=blocks, thread_ts=thread_ts)
+
 
 def handle_spec_question(question, channel, thread_ts=None, user=None, user_name="Unknown"):
     post_message(channel, f"_Searching specs for: {question}..._", thread_ts=thread_ts)
@@ -105,6 +171,22 @@ def slash_command():
     channel = data.get("channel_id")
     user = data.get("user_id")
     thread_ts = data.get("thread_ts") or None
+
+    # /specbot edit <page title> | <section> | <instruction>
+    # /specbot edit <page title> | <instruction>
+    if text.lower().startswith("edit "):
+        parts = [p.strip() for p in text[5:].split("|")]
+        if len(parts) == 3:
+            page_query, section, instruction = parts
+        elif len(parts) == 2:
+            page_query, instruction = parts
+            section = "auto"
+        else:
+            return jsonify({"response_type": "ephemeral", "text": "Usage: `/specbot edit <page title> | <instruction>` or `/specbot edit <page title> | <section name> | <instruction>`"})
+
+        user_name = resolve_user_name(user)
+        threading.Thread(target=handle_spec_edit, args=(page_query, section, instruction, channel, thread_ts, user, user_name)).start()
+        return jsonify({"response_type": "in_channel", "text": f"<@{user}> Looking up the spec page..."})
 
     # /specbot live <meeting_url>
     if text.lower().startswith("live "):
@@ -170,6 +252,8 @@ def slash_command():
             "text": (
                 "*SpecBot commands:*\n"
                 "• `/specbot <question>` — ask about a spec\n"
+                "• `/specbot edit <page title> | <instruction>` — edit a spec section\n"
+                "• `/specbot edit <page title> | <section name> | <instruction>` — edit a specific section\n"
                 "• `/specbot brainstorm` — start a live Slack thread brainstorm\n"
                 "• `/specbot live <meeting URL>` — join a call and write proposal live\n"
                 "• `/specbot done` — end the active brainstorm session"
@@ -237,6 +321,34 @@ def events():
                     except Exception:
                         name = "Team"
                     live_manager.add_utterance(thread_ts, name, text)
+            else:
+                # Check if this reply is a revision instruction for a pending edit
+                for key, edit in list(_pending_edits.items()):
+                    if edit.get("awaiting_revision") and edit.get("revision_thread_ts") == thread_ts and edit.get("channel") == channel:
+                        edit["awaiting_revision"] = False
+
+                        def redo_edit(e=edit, k=key, revision=text):
+                            try:
+                                result = claude.draft_section_edit(e["page_content"], e["section_heading"], revision)
+                                revised_section = result.get("revised_section", "")
+                                summary = result.get("summary", "")
+                                e["new_html"] = confluence._markdown_to_confluence(revised_section)
+                                preview = revised_section[:600] + ("..." if len(revised_section) > 600 else "")
+                                blocks = [
+                                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Revised edit to `{e['section_heading']}` in <{e['page_url']}|{e['page_title']}>*\n_{summary}_"}},
+                                    {"type": "section", "text": {"type": "mrkdwn", "text": f"```{preview}```"}},
+                                    {"type": "actions", "elements": [
+                                        {"type": "button", "text": {"type": "plain_text", "text": "✅ Approve"}, "style": "primary", "action_id": "approve_edit", "value": k},
+                                        {"type": "button", "text": {"type": "plain_text", "text": "✏️ Revise"}, "action_id": "revise_edit", "value": k},
+                                        {"type": "button", "text": {"type": "plain_text", "text": "🗑️ Discard"}, "style": "danger", "action_id": "discard_edit", "value": k},
+                                    ]},
+                                ]
+                                post_message(e["channel"], f"Revised edit to {e['page_title']}", blocks=blocks, thread_ts=e["thread_ts"])
+                            except Exception as ex:
+                                post_message(e["channel"], f"Revision failed: {ex}", thread_ts=e["thread_ts"])
+
+                        threading.Thread(target=redo_edit).start()
+                        break
 
     return jsonify({"ok": True})
 
@@ -317,7 +429,41 @@ def interactions():
     for action in actions:
         action_id = action.get("action_id")
 
-        if action_id == "publish_proposal":
+        if action_id == "approve_edit":
+            edit_key = action.get("value", "")
+            edit = _pending_edits.get(edit_key)
+            if not edit:
+                post_message(channel, "Edit expired or already applied.", thread_ts=thread_ts)
+                continue
+
+            def apply_edit(e=edit, key=edit_key):
+                try:
+                    page_url = confluence.replace_section_html(e["page_id"], e["page_title"], e["old_html"], e["new_html"])
+                    post_message(e["channel"], f"✅ *Edit applied!* <{page_url}|View updated spec>", thread_ts=e["thread_ts"])
+                    threading.Thread(target=logger.log_spec_edit, args=(e["page_title"], e["page_id"], e["user_name"])).start()
+                except Exception as ex:
+                    post_message(e["channel"], f"Failed to apply edit: {ex}", thread_ts=e["thread_ts"])
+                finally:
+                    _pending_edits.pop(key, None)
+
+            threading.Thread(target=apply_edit).start()
+
+        elif action_id == "revise_edit":
+            edit_key = action.get("value", "")
+            edit = _pending_edits.get(edit_key)
+            if not edit:
+                post_message(channel, "Edit expired or not found.", thread_ts=thread_ts)
+                continue
+            edit["awaiting_revision"] = True
+            edit["revision_thread_ts"] = thread_ts
+            post_message(channel, "_Reply here with your revision instructions and I'll redo the edit._", thread_ts=thread_ts)
+
+        elif action_id == "discard_edit":
+            edit_key = action.get("value", "")
+            _pending_edits.pop(edit_key, None)
+            post_message(channel, "_Edit discarded._", thread_ts=thread_ts)
+
+        elif action_id == "publish_proposal":
             proposal_text = action.get("value", "")
             post_message(channel, "_Publishing to Confluence..._", thread_ts=thread_ts)
 

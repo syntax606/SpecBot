@@ -155,6 +155,57 @@ class ConfluenceClient:
         resp.raise_for_status()
         return self.page_url(page_id)
 
+    def search_by_title(self, title: str, limit: int = 5) -> list[dict]:
+        """Search Confluence pages by title — exact match first, then contains."""
+        space_key = os.environ.get("CONFLUENCE_SPACE_KEY", "")
+        for operator in ("=", "~"):
+            cql = f'title {operator} "{title}" AND type = "page"'
+            if space_key:
+                cql += f' AND space = "{space_key}"'
+            resp = requests.get(
+                f"{self.base_url}/rest/api/content/search",
+                params={"cql": cql, "limit": limit, "expand": "space"},
+                auth=self.auth,
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            if results:
+                return [{"id": r["id"], "title": r["title"]} for r in results]
+        return []
+
+    def extract_section(self, raw_html: str, heading_text: str) -> dict | None:
+        """
+        Extract a section from Confluence storage HTML by heading text.
+        Returns {"heading_tag": str, "full_html": str} or None.
+        full_html spans from the heading to the next equal-or-higher heading.
+        """
+        pattern = re.compile(
+            r'(<h([1-6])[^>]*>[^<]*' + re.escape(heading_text) + r'[^<]*</h\2>)',
+            re.IGNORECASE | re.DOTALL,
+        )
+        match = pattern.search(raw_html)
+        if not match:
+            return None
+
+        heading_level = int(match.group(2))
+        end_pattern = re.compile(r'<h([1-' + str(heading_level) + r'])[^>]*>', re.IGNORECASE)
+        end_match = end_pattern.search(raw_html, match.end())
+        end_pos = end_match.start() if end_match else len(raw_html)
+
+        return {
+            "heading_tag": match.group(1),
+            "full_html": raw_html[match.start():end_pos],
+        }
+
+    def replace_section_html(self, page_id: str, page_title: str, old_html: str, new_html: str) -> str:
+        """Replace a section's HTML in a Confluence page and return the page URL."""
+        current_html = self.get_page_raw_html(page_id)
+        if old_html not in current_html:
+            raise ValueError("Section HTML not found — the page may have changed since you fetched it.")
+        updated_html = current_html.replace(old_html, new_html, 1)
+        return self.update_page(page_id=page_id, title=page_title, content=updated_html, raw_html=True)
+
     def _markdown_to_confluence(self, text: str) -> str:
         """Basic markdown → Confluence storage format conversion."""
         lines = []

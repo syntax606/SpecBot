@@ -1,5 +1,7 @@
 # SpecBot
 
+![SpecBot](assets/specbot-hero.jpeg)
+
 A Slack bot that answers engineer questions from your Confluence specs, runs live AI-assisted brainstorm sessions, edits existing spec pages section by section, shows a changelog of what changed in a spec over any time period, and logs all spec activity to a master audit trail.
 
 Built with Claude (Anthropic), Recall.ai, Confluence, and Slack. Deployable on Railway in under an hour.
@@ -91,6 +93,8 @@ Activity Logger
 
 ```
 SpecBot/
+├── assets/
+│   └── specbot-hero.jpeg         # README hero image
 ├── src/
 │   ├── __init__.py
 │   ├── app.py                # Flask app — all Slack and webhook routes

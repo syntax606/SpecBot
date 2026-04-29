@@ -111,18 +111,22 @@ class ConfluenceClient:
             headers=self.headers,
         )
         resp.raise_for_status()
-        current_version = resp.json()["version"]["number"]
+        data = resp.json()
+        current_version = data["version"]["number"]
+        title = data["title"]
         payload = {
             "type": "page",
+            "title": title,
             "status": "current",
             "version": {"number": current_version + 1},
         }
-        requests.put(
+        resp = requests.put(
             f"{self.base_url}/rest/api/content/{page_id}",
             json=payload,
             auth=self.auth,
             headers={**self.headers, "Content-Type": "application/json"},
         )
+        resp.raise_for_status()
 
     def update_page(self, page_id: str, title: str, content: str, raw_html: bool = False) -> str:
         """Update an existing Confluence page with new content."""

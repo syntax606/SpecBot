@@ -15,7 +15,7 @@ Log page format (Confluence storage):
 import os
 import threading
 from datetime import datetime, timezone
-from confluence_client import ConfluenceClient
+from .confluence_client import ConfluenceClient
 
 
 LOG_PAGE_TITLE = "Spec Activity Log"
@@ -96,14 +96,19 @@ class ActivityLogger:
             if resp.ok:
                 results = resp.json().get("results", [])
                 if results:
-                    self._page_id = results[0]["id"]
-                    # Publish if it was found as a draft
-                    if status == "draft":
-                        try:
-                            self.confluence.publish_page(self._page_id)
-                        except Exception:
-                            pass
-                    return
+                    candidate_id = results[0]["id"]
+                    # Verify the page is actually accessible before committing to it
+                    try:
+                        self.confluence.get_page_raw_html(candidate_id)
+                        self._page_id = candidate_id
+                        if status == "draft":
+                            try:
+                                self.confluence.publish_page(self._page_id)
+                            except Exception:
+                                pass
+                        return
+                    except Exception:
+                        continue  # page listed but inaccessible — try next status
 
         # Not found anywhere — create and publish fresh
         initial_content = self._build_table([])

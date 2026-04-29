@@ -242,6 +242,21 @@ Return the JSON array of sections to update based on clear decisions made in the
         result = json.loads(raw)
         return result if isinstance(result, list) else []
 
+    def answer_general(self, question: str) -> str:
+        """Answer with full Claude capability."""
+        system = """You are SpecBot, an assistant for a software development team.
+Answer questions helpfully and thoroughly using your full capability.
+Be direct and concise. Use bullet points or numbered lists where they aid clarity.
+If a question is about an internal team decision that only the team's own documentation could answer, say so clearly."""
+
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=800,
+            system=system,
+            messages=[{"role": "user", "content": question}]
+        )
+        return message.content[0].text
+
     def answer_spec_question(self, question: str, spec_context: str) -> str:
         """Answer an engineer's question using the spec content as primary source."""
         system = """You are SpecBot, an assistant for a software development team.

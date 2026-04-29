@@ -7,7 +7,7 @@ import anthropic
 class ClaudeClient:
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        self.model = "claude-sonnet-4-20250514"
+        self.model = "claude-sonnet-4-6"
 
     def draft_proposal(self, transcript: str, format_example: str = "") -> str:
         """

@@ -203,12 +203,16 @@ def handle_spec_edit(page_query: str, section: str, instruction: str, channel: s
 
 
 def handle_spec_question(question, channel, thread_ts=None, user=None, user_name="Unknown"):
-    answer = claude.answer_general(question)
-    post_message(channel, answer, thread_ts=thread_ts)
-    threading.Thread(
-        target=logger.log_question,
-        args=(user_name, user or "", question, [])
-    ).start()
+    try:
+        answer = claude.answer_general(question)
+        post_message(channel, answer, thread_ts=thread_ts)
+        threading.Thread(
+            target=logger.log_question,
+            args=(user_name, user or "", question, [])
+        ).start()
+    except Exception as e:
+        print(f"handle_spec_question error: {e}")
+        post_message(channel, f"⚠️ Something went wrong: `{e}`", thread_ts=thread_ts)
 
 
 # ── Slash commands ────────────────────────────────────────────────────────────

@@ -29,6 +29,22 @@ class ConfluenceClient:
             print(f"Could not fetch gold standard spec (page {page_id}): {e}")
             return ""
 
+    def list_all_pages(self, limit: int = 5) -> list[dict]:
+        """Return all published pages in the configured space, excluding the activity log."""
+        space_key = os.environ.get("CONFLUENCE_SPACE_KEY", "")
+        if not space_key:
+            return []
+        cql = f'type = "page" AND status = "current" AND space = "{space_key}" AND title != "Spec Activity Log"'
+        resp = requests.get(
+            f"{self.base_url}/rest/api/content/search",
+            params={"cql": cql, "limit": limit, "expand": "space"},
+            auth=self.auth,
+            headers=self.headers,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        return [{"id": r["id"], "title": r["title"]} for r in results]
+
     def search(self, query: str, limit: int = 3) -> list[dict]:
         """Search Confluence for pages matching the query."""
         space_key = os.environ.get("CONFLUENCE_SPACE_KEY", "")

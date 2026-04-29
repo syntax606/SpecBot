@@ -206,7 +206,10 @@ def handle_spec_question(question, channel, thread_ts=None, user=None, user_name
     post_message(channel, f"_Searching specs for: {question}..._", thread_ts=thread_ts)
     pages = confluence.search(question, limit=3)
     if not pages:
-        post_message(channel, "Couldn't find relevant specs. Try a different question or link a specific page.", thread_ts=thread_ts)
+        # Question keywords didn't match any page — fall back to all pages in the space
+        pages = confluence.list_all_pages(limit=5)
+    if not pages:
+        post_message(channel, "No spec pages found in Confluence. Make sure `CONFLUENCE_SPACE_KEY` is set correctly in your environment variables.", thread_ts=thread_ts)
         return
 
     context_parts = []

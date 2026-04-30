@@ -202,6 +202,44 @@ def handle_spec_edit(page_query: str, section: str, instruction: str, channel: s
     post_message(channel, f"Proposed edit to {page_title}", blocks=blocks, thread_ts=thread_ts)
 
 
+def handle_spec_create(title: str, brief: str, format_page_query: str, channel: str, thread_ts, user: str, user_name: str):
+    post_message(channel, f"_Drafting spec for *{title}*..._", thread_ts=thread_ts)
+
+    format_example = ""
+    if format_page_query:
+        pages = confluence.search_by_title(format_page_query, limit=3)
+        if not pages:
+            pages = confluence.search(format_page_query, limit=3)
+        if pages:
+            try:
+                format_example = confluence.get_page_content(pages[0]["id"])
+            except Exception:
+                pass
+        if not format_example:
+            post_message(channel, f"_Couldn't find *{format_page_query}* — using the default format instead._", thread_ts=thread_ts)
+
+    if not format_example:
+        format_example = confluence.get_gold_standard_spec()
+
+    try:
+        content = claude.create_spec(title, brief, format_example)
+    except Exception as e:
+        post_message(channel, f"Couldn't draft the spec: {e}", thread_ts=thread_ts)
+        return
+
+    space_key = os.environ.get("CONFLUENCE_SPACE_KEY", "")
+    try:
+        url = confluence.create_draft_page(title=title, content=content, space_key=space_key)
+        page_id = url.rstrip("/").split("/")[-1]
+        confluence.publish_page(page_id)
+    except Exception as e:
+        post_message(channel, f"Couldn't create the Confluence page: {e}", thread_ts=thread_ts)
+        return
+
+    post_message(channel, f"✅ *<{url}|{title}>* created in Confluence.", thread_ts=thread_ts)
+    threading.Thread(target=logger.log_spec_create, args=(title, page_id, user_name)).start()
+
+
 def handle_spec_question(question, channel, thread_ts=None, user=None, user_name="Unknown"):
     try:
         # Prefer the configured gold standard page; fall back to keyword search
@@ -285,6 +323,22 @@ def slash_command():
         threading.Thread(target=handle_spec_edit, args=(page_query, section, instruction, channel, thread_ts, user, user_name)).start()
         return jsonify({"response_type": "in_channel", "text": f"<@{user}> Looking up the spec page..."})
 
+    # /specbot create <title> | <brief>
+    # /specbot create <title> | <brief> | format like <page name>
+    if text.lower().startswith("create "):
+        parts = [p.strip() for p in text[7:].split("|")]
+        if len(parts) < 2 or not parts[0] or not parts[1]:
+            return jsonify({"response_type": "ephemeral", "text": "Usage: `/specbot create <title> | <brief description>` or `/specbot create <title> | <brief> | format like <page name>`"})
+        title = parts[0]
+        brief = parts[1]
+        format_page_query = ""
+        if len(parts) >= 3:
+            third = parts[2].strip()
+            format_page_query = third[len("format like "):].strip() if third.lower().startswith("format like ") else third
+        user_name = resolve_user_name(user)
+        threading.Thread(target=handle_spec_create, args=(title, brief, format_page_query, channel, thread_ts, user, user_name)).start()
+        return jsonify({"response_type": "in_channel", "text": f"<@{user}> Creating spec *{title}*..."})
+
     # /specbot live <meeting_url>
     # /specbot live <meeting_url> | <existing page title>
     if text.lower().startswith("live "):
@@ -359,6 +413,8 @@ def slash_command():
             "text": (
                 "*SpecBot commands:*\n"
                 "• `/specbot <question>` — ask about a spec\n"
+                "• `/specbot create <title> | <brief>` — create a new spec page\n"
+                "• `/specbot create <title> | <brief> | format like <page name>` — create using a specific page's format\n"
                 "• `/specbot log <page title> | last 7 days` — show what changed in a spec (supports: today, yesterday, last N days, last week, YYYY-MM-DD to YYYY-MM-DD)\n"
                 "• `/specbot edit <page title> | <instruction>` — edit a spec section\n"
                 "• `/specbot edit <page title> | <section name> | <instruction>` — edit a specific section\n"

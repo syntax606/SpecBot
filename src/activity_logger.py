@@ -68,6 +68,17 @@ class ActivityLogger:
             link=proposal_url,
         )
 
+    def log_spec_create(self, page_title: str, page_id: str, creator_name: str):
+        """Log a new spec page created via the create command."""
+        page_url = self.confluence.page_url(page_id)
+        detail = f"Created spec: <a href='{page_url}'>{self._escape(page_title)}</a>"
+        self._append_row(
+            event_type="📄 New Spec",
+            who=creator_name,
+            detail=detail,
+            link=page_url,
+        )
+
     def log_spec_edit(self, page_title: str, page_id: str, editor_name: str):
         """Log a direct edit to a spec page in Confluence."""
         page_url = self.confluence.page_url(page_id)

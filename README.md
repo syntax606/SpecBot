@@ -18,21 +18,31 @@ Engineers ask questions in Slack. SpecBot searches your Confluence spec pages, p
 @SpecBot Does the spec cover offline mode?
 ```
 
-### 2. Live brainstorm → proposal (Slack thread)
+### 2. Create a spec from a brief
+Give SpecBot a title and a one-line description. It generates a fully structured spec in your team's format and publishes it to Confluence immediately — no brainstorm session needed.
+
+```
+/specbot create Payments v2 | handles retry logic for failed transactions
+/specbot create Offline Mode | allow users to read cached content without a network connection | format like Login Flow Spec
+```
+
+By default the format matches your gold standard spec (`CONFLUENCE_GOLD_STANDARD_PAGE_ID`). The optional `format like <page name>` segment uses any other existing spec page as the template instead.
+
+### 3. Live brainstorm → proposal (Slack thread)
 Start a live session in Slack. Talk through the feature idea in the thread naturally. SpecBot builds a structured proposal in Confluence as you go, updating it every 60 seconds. When you're done, one command finalises and publishes it.
 
 ```
 /specbot brainstorm
 ```
 
-### 3. Live brainstorm → proposal (Google Meet)
+### 4. Live brainstorm → proposal (Google Meet)
 SpecBot joins your Google Meet via Recall.ai, listens to the conversation in real time, and writes the proposal directly to a Confluence draft page as you talk. When the call ends, the proposal is finalised automatically.
 
 ```
 /specbot live https://meet.google.com/abc-defg-hij
 ```
 
-### 4. Live spec update (Google Meet)
+### 5. Live spec update (Google Meet)
 Point SpecBot at an existing spec page when joining a call. Instead of creating a new proposal, it monitors the conversation and patches only the sections where the team makes a concrete decision — directly updating the live spec page every 60 seconds.
 
 ```
@@ -44,7 +54,7 @@ SpecBot will tell you in Slack exactly which sections it changed and why, e.g.:
 > • *Key Requirements*: Added PCI-DSS compliance requirement following Alice's confirmation
 > • *Out of Scope*: Removed 3DS2 after team agreed to defer it
 
-### 5. Section-specific spec editing
+### 6. Section-specific spec editing
 Edit a specific section of any existing Confluence spec page directly from Slack. Claude drafts the change and shows you a preview first — you approve, revise with new instructions, or discard before anything touches Confluence.
 
 ```
@@ -54,7 +64,7 @@ Edit a specific section of any existing Confluence spec page directly from Slack
 
 Omitting the section name lets Claude decide which section the instruction most naturally applies to.
 
-### 6. Spec changelog
+### 7. Spec changelog
 Ask SpecBot what changed in any spec page over a given time period. It pulls the Confluence version history, compares the page before and after the period, and returns a human-readable section-by-section summary as a Slack post.
 
 ```
@@ -65,7 +75,7 @@ Ask SpecBot what changed in any spec page over a given time period. It pulls the
 
 Supported time phrases: `today`, `yesterday`, `last N days`, `last week`, `this week`, or an explicit ISO date range.
 
-### 7. Spec activity log
+### 8. Spec activity log
 Every spec-related action is recorded to a master "Spec Activity Log" Confluence page — who asked what, who ran a brainstorm, who edited a spec page directly, and when. Newest entries appear first.
 
 ---
@@ -122,6 +132,8 @@ SpecBot/
 | Command | Description |
 |---|---|
 | `/specbot <question>` | Answer a question from the spec |
+| `/specbot create <title> \| <brief>` | Create a new spec page from a brief description |
+| `/specbot create <title> \| <brief> \| format like <page>` | Create using a specific page's format |
 | `/specbot log <page> \| <time range>` | Show what changed in a spec over a time period |
 | `/specbot edit <page> \| <instruction>` | Edit the most relevant section of a spec page |
 | `/specbot edit <page> \| <section> \| <instruction>` | Edit a specific named section |

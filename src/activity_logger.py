@@ -15,7 +15,7 @@ Log page format (Confluence storage):
 import os
 import threading
 from datetime import datetime, timezone
-from .confluence_client import ConfluenceClient
+from confluence_client import ConfluenceClient
 
 
 LOG_PAGE_TITLE = "Spec Activity Log"

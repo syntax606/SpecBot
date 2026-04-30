@@ -224,13 +224,7 @@ def handle_spec_question(question, channel, thread_ts=None, user=None, user_name
             if context_parts:
                 spec_context = "\n\n---\n\n".join(context_parts)
                 answer = claude.answer_spec_question(question, spec_context)
-                source_links = "\n".join([f"• <{confluence.page_url(p['id'])}|{p['title']}>" for p in pages])
-                blocks = [
-                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Answer:*\n{answer}"}},
-                    {"type": "divider"},
-                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Sources:*\n{source_links}"}},
-                ]
-                post_message(channel, answer, blocks=blocks, thread_ts=thread_ts)
+                post_message(channel, answer, thread_ts=thread_ts)
                 threading.Thread(
                     target=logger.log_question,
                     args=(user_name, user or "", question, pages)

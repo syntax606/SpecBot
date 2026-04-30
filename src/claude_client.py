@@ -285,7 +285,7 @@ Engineer's question: {question}"""
 
         message = self.client.messages.create(
             model=self.model,
-            max_tokens=600,
+            max_tokens=1500,
             system=system,
             messages=[{"role": "user", "content": prompt}]
         )

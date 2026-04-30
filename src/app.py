@@ -204,12 +204,47 @@ def handle_spec_edit(page_query: str, section: str, instruction: str, channel: s
 
 def handle_spec_question(question, channel, thread_ts=None, user=None, user_name="Unknown"):
     try:
+        # Prefer the configured gold standard page; fall back to keyword search
+        gold_id = os.environ.get("CONFLUENCE_GOLD_STANDARD_PAGE_ID", "")
+        if gold_id:
+            pages = [{"id": gold_id, "title": "Spec"}]
+        else:
+            pages = confluence.search(question, limit=3)
+            if not pages:
+                pages = confluence.list_all_pages(limit=5)
+
+        if pages:
+            context_parts = []
+            for page in pages:
+                try:
+                    content = confluence.get_page_content(page["id"])
+                    context_parts.append(f"## {page['title']}\n\n{content}")
+                except Exception:
+                    pass
+            if context_parts:
+                spec_context = "\n\n---\n\n".join(context_parts)
+                answer = claude.answer_spec_question(question, spec_context)
+                source_links = "\n".join([f"• <{confluence.page_url(p['id'])}|{p['title']}>" for p in pages])
+                blocks = [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Answer:*\n{answer}"}},
+                    {"type": "divider"},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*Sources:*\n{source_links}"}},
+                ]
+                post_message(channel, answer, blocks=blocks, thread_ts=thread_ts)
+                threading.Thread(
+                    target=logger.log_question,
+                    args=(user_name, user or "", question, pages)
+                ).start()
+                return
+
+        # No spec pages available — answer from general Claude knowledge
         answer = claude.answer_general(question)
         post_message(channel, answer, thread_ts=thread_ts)
         threading.Thread(
             target=logger.log_question,
             args=(user_name, user or "", question, [])
         ).start()
+
     except Exception as e:
         print(f"handle_spec_question error: {e}")
         post_message(channel, f"⚠️ Something went wrong: `{e}`", thread_ts=thread_ts)

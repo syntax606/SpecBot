@@ -83,39 +83,44 @@ class ActivityLogger:
 
     def _ensure_log_page(self):
         """Find or create the master log page."""
+        # If the page ID is pinned via env var, trust it and skip the search
+        pinned_id = os.environ.get("CONFLUENCE_LOG_PAGE_ID", "")
+        if pinned_id:
+            self._page_id = pinned_id
+            return
+
+        import requests as _req
         space_key = os.environ.get("CONFLUENCE_SPACE_KEY", "")
 
-        # Search by exact title across both published and draft pages to avoid duplicates
+        # Search published then draft; try every candidate before giving up
         for status in ("current", "draft"):
             cql = f'title = "{LOG_PAGE_TITLE}" AND type = "page" AND status = "{status}"'
             if space_key:
                 cql += f' AND space = "{space_key}"'
-            import requests as _req
             resp = _req.get(
                 f"{self.confluence.base_url}/rest/api/content/search",
-                params={"cql": cql, "limit": 1},
+                params={"cql": cql, "limit": 20},
                 auth=self.confluence.auth,
                 headers=self.confluence.headers,
                 timeout=15,
             )
-            if resp.ok:
-                results = resp.json().get("results", [])
-                if results:
-                    candidate_id = results[0]["id"]
-                    # Verify the page is actually accessible before committing to it
-                    try:
-                        self.confluence.get_page_raw_html(candidate_id)
-                        self._page_id = candidate_id
-                        if status == "draft":
-                            try:
-                                self.confluence.publish_page(self._page_id)
-                            except Exception:
-                                pass
-                        return
-                    except Exception:
-                        continue  # page listed but inaccessible — try next status
+            if not resp.ok:
+                continue
+            for result in resp.json().get("results", []):
+                candidate_id = result["id"]
+                try:
+                    self.confluence.get_page_raw_html(candidate_id)
+                    self._page_id = candidate_id
+                    if status == "draft":
+                        try:
+                            self.confluence.publish_page(self._page_id)
+                        except Exception:
+                            pass
+                    return
+                except Exception:
+                    continue
 
-        # Not found anywhere — create and publish fresh
+        # Truly not found — create fresh and publish
         initial_content = self._build_table([])
         url = self.confluence.create_draft_page(
             title=LOG_PAGE_TITLE,

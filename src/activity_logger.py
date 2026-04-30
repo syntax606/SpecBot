@@ -26,6 +26,10 @@ class ActivityLogger:
     def __init__(self):
         self.confluence = ConfluenceClient()
         self._page_id: str = ""
+        # Run in background so slow Confluence calls don't block app startup
+        threading.Thread(target=self._init_log_page, daemon=True).start()
+
+    def _init_log_page(self):
         try:
             self._ensure_log_page()
         except Exception as e:
@@ -92,6 +96,7 @@ class ActivityLogger:
                 params={"cql": cql, "limit": 1},
                 auth=self.confluence.auth,
                 headers=self.confluence.headers,
+                timeout=15,
             )
             if resp.ok:
                 results = resp.json().get("results", [])

@@ -40,6 +40,7 @@ class ConfluenceClient:
             params={"cql": cql, "limit": limit, "expand": "space"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -57,6 +58,7 @@ class ConfluenceClient:
             params={"cql": cql, "limit": limit, "expand": "space"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -69,6 +71,7 @@ class ConfluenceClient:
             params={"expand": "body.storage"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         html = resp.json()["body"]["storage"]["value"]
@@ -87,6 +90,7 @@ class ConfluenceClient:
             params={"expand": "body.storage"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         return resp.json()["body"]["storage"]["value"]
@@ -113,6 +117,7 @@ class ConfluenceClient:
             json=payload,
             auth=self.auth,
             headers={**self.headers, "Content-Type": "application/json"},
+            timeout=15,
         )
         resp.raise_for_status()
         page_id = resp.json()["id"]
@@ -125,6 +130,7 @@ class ConfluenceClient:
             params={"expand": "version"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -141,6 +147,7 @@ class ConfluenceClient:
             json=payload,
             auth=self.auth,
             headers={**self.headers, "Content-Type": "application/json"},
+            timeout=15,
         )
         resp.raise_for_status()
 
@@ -151,6 +158,7 @@ class ConfluenceClient:
             params={"expand": "version"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         current_version = resp.json()["version"]["number"]
@@ -172,6 +180,7 @@ class ConfluenceClient:
             json=payload,
             auth=self.auth,
             headers={**self.headers, "Content-Type": "application/json"},
+            timeout=15,
         )
         resp.raise_for_status()
         return self.page_url(page_id)
@@ -183,6 +192,7 @@ class ConfluenceClient:
             params={"limit": 200},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         results = resp.json().get("results", [])
@@ -213,6 +223,7 @@ class ConfluenceClient:
             params={"expand": "content.body.storage"},
             auth=self.auth,
             headers=self.headers,
+            timeout=15,
         )
         resp.raise_for_status()
         html = resp.json()["content"]["body"]["storage"]["value"]
@@ -232,6 +243,7 @@ class ConfluenceClient:
                 params={"cql": cql, "limit": limit, "expand": "space"},
                 auth=self.auth,
                 headers=self.headers,
+                timeout=15,
             )
             resp.raise_for_status()
             results = resp.json().get("results", [])
